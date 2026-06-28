@@ -6,11 +6,13 @@ By default, it presses **E every 3 seconds**. Press **F1** at any time to enable
 
 ## Download
 
-1. Open the repository's **Actions** tab.
-2. Select the latest successful **Build Windows executable** run.
-3. Download the **Schedule1AutoClicker-windows** artifact.
-4. Extract the downloaded ZIP.
+1. Open the [latest release](https://github.com/TobyKillen/Schedule1-Casino-Auto-Clicker/releases/latest).
+2. Select the latest version.
+3. Download `Schedule1AutoClicker.exe` or the versioned Windows ZIP.
+4. Extract the ZIP if you downloaded it.
 5. Run `Schedule1AutoClicker.exe`.
+
+SHA-256 checksums are attached to every release as `SHA256SUMS.txt`.
 
 No Python installation or additional setup is required.
 

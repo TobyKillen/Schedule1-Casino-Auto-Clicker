@@ -18,6 +18,12 @@ No Python installation or additional setup is required.
 
 > Windows SmartScreen may warn you because the executable is not code-signed. Select **More info**, confirm that you trust the download, and choose **Run anyway**.
 
+## Publishing a release
+
+Maintainers can open **Actions**, select **Build and release Windows executable**, choose **Run workflow**, and enter a semantic version such as `1.2.3`. The workflow creates the `v1.2.3` tag after the executable passes its smoke test, then publishes the executable, a versioned Windows ZIP, and SHA-256 checksums to GitHub Releases.
+
+Pushing a semantic version tag such as `v1.2.3` also publishes a release. Branch pushes and pull requests only build and test the executable.
+
 ## How to use
 
 1. Open `Schedule1AutoClicker.exe`.

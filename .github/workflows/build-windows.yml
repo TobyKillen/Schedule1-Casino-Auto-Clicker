@@ -1,4 +1,4 @@
-name: Build Windows executable
+name: Build and release Windows executable
 
 on:
   push:
@@ -6,18 +6,49 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to tag and release (for example, 1.2.3)"
+        required: true
+        type: string
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     name: Build Schedule1AutoClicker.exe
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: version
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          RAW_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          $version = $env:RAW_VERSION.Trim()
+          if (-not $version.StartsWith("v")) {
+            $version = "v$version"
+          }
+
+          if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
+            throw "Version '$version' is invalid. Use semantic versioning, for example 1.2.3 or 1.2.3-beta.1."
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -50,6 +81,26 @@ jobs:
             throw "Packaged smoke test failed with exit code $($process.ExitCode)"
           }
 
+      - name: Create and push version tag
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $existingCommit = git rev-list -n 1 $env:VERSION 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($existingCommit -ne "${{ github.sha }}") {
+              throw "Tag $env:VERSION already exists at commit $existingCommit."
+            }
+            Write-Host "Tag $env:VERSION already points to this commit; reusing it."
+          }
+          else {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag --annotate $env:VERSION --message "Release $env:VERSION" "${{ github.sha }}"
+            git push origin $env:VERSION
+          }
+
       - name: Upload Windows executable
         uses: actions/upload-artifact@v7
         with:
@@ -59,26 +110,29 @@ jobs:
           retention-days: 14
 
       - name: Package versioned release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.version != ''
         shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $version = "${{ github.ref_name }}"
           $releaseDirectory = "release"
-          $zipName = "Schedule1AutoClicker-$version-windows-x64.zip"
+          $zipName = "Schedule1AutoClicker-$env:VERSION-windows-x64.zip"
 
           New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
           Copy-Item "dist\Schedule1AutoClicker.exe" "$releaseDirectory\Schedule1AutoClicker.exe"
-          Compress-Archive -Path "dist\Schedule1AutoClicker.exe" -DestinationPath "$releaseDirectory\$zipName" -Force
+          Compress-Archive -Path "$releaseDirectory\Schedule1AutoClicker.exe" -DestinationPath "$releaseDirectory\$zipName" -Force
 
-          $hash = (Get-FileHash "dist\Schedule1AutoClicker.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  Schedule1AutoClicker.exe" | Set-Content "$releaseDirectory\SHA256SUMS.txt" -Encoding ascii
+          @("Schedule1AutoClicker.exe", $zipName) | ForEach-Object {
+            $hash = (Get-FileHash "$releaseDirectory\$_" -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $_"
+          } | Set-Content "$releaseDirectory\SHA256SUMS.txt" -Encoding ascii
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.version.outputs.version != ''
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           $zipName = "Schedule1AutoClicker-$env:VERSION-windows-x64.zip"
           gh release view $env:VERSION --json tagName 2>$null | Out-Null
@@ -91,13 +145,19 @@ jobs:
               --clobber
           }
           else {
+            $releaseType = @()
+            if ($env:VERSION.Contains("-")) {
+              $releaseType = @("--prerelease")
+            }
+
             gh release create $env:VERSION `
               "release\Schedule1AutoClicker.exe#Standalone Windows executable" `
               "release\$zipName#Windows x64 package" `
               "release\SHA256SUMS.txt#SHA-256 checksums" `
               --verify-tag `
               --generate-notes `
-              --title "Schedule 1 Auto Clicker $env:VERSION"
+              --title "Schedule 1 Auto Clicker $env:VERSION" `
+              @releaseType
           }
 
           if ($LASTEXITCODE -ne 0) {
